@@ -81,4 +81,24 @@ final class RemoteController: ObservableObject {
     func invalidate(_ device: Device) {
         fireTVControllers[device.id] = nil
     }
+
+    /// Launch a streaming app on a Fire TV by package name.
+    func launchApp(_ shortcut: FireTVAppShortcut, on device: Device) {
+        Task {
+            do {
+                guard let host = device.networkHost, !host.isEmpty else {
+                    throw RemoteError.invalidConfiguration("Set the Fire TV's IP address in its settings first.")
+                }
+                let controller = fireTVControllers[device.id] ?? {
+                    let c = FireTVController(host: host, port: device.networkPort)
+                    fireTVControllers[device.id] = c
+                    return c
+                }()
+                try await controller.launchApp(packageName: shortcut.packageName)
+                await MainActor.run { self.lastError = nil }
+            } catch {
+                await MainActor.run { self.lastError = error.localizedDescription }
+            }
+        }
+    }
 }

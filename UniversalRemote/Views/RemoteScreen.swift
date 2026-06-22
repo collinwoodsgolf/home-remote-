@@ -41,6 +41,10 @@ struct RemoteScreen: View {
                         }
                     }
                 }
+
+                if device.kind == .fireTV {
+                    AppShortcutsGrid(device: device)
+                }
             }
             .padding()
         }
@@ -107,6 +111,44 @@ private struct SetupBanner: View {
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.yellow.opacity(0.2), in: RoundedRectangle(cornerRadius: 14))
+    }
+}
+
+/// One-tap streaming app launchers, shown only for the Fire TV.
+private struct AppShortcutsGrid: View {
+    let device: Device
+    @EnvironmentObject private var controller: RemoteController
+
+    private let columns = [GridItem(.adaptive(minimum: 84), spacing: 12)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Apps")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(FireTVAppShortcut.defaults) { shortcut in
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        controller.launchApp(shortcut, on: device)
+                    } label: {
+                        VStack(spacing: 6) {
+                            Image(systemName: shortcut.symbol)
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(shortcut.tint)
+                            Text(shortcut.name)
+                                .font(.caption2)
+                                .lineLimit(1).minimumScaleFactor(0.7)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 64)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                }
+            }
+        }
+        .padding(.top, 8)
     }
 }
 

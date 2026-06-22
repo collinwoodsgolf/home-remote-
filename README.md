@@ -99,6 +99,10 @@ without it (enter the hub IP manually).
   IR learning won't apply and you'd need its own app for transport control.
 - **Fire TV power:** `KEYCODE_POWER` sleeps/wakes the device; full TV power
   depends on HDMI‑CEC support of your TV.
+- **Fire TV app shortcuts:** the Fire TV face includes one‑tap launchers
+  (Netflix, Prime Video, YouTube, Disney+, Hulu, Spotify) that fire a launcher
+  intent for the app's Fire OS package. Edit `FireTVAppShortcut.defaults` to add
+  your own.
 - The Broadlink implementation supports both the original RM mini/Pro framing
   and the RM4 generation (auto‑selected from the reported device type).
 - Codes and hub pairings are stored locally on the device; nothing leaves your
