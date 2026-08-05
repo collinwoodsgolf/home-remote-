@@ -86,12 +86,18 @@ and (for network devices) a key map.
    identity for ADB.)
 
 ### Entitlements
-`SupportingFiles/UniversalRemote.entitlements` requests
-`com.apple.developer.networking.multicast`, which iOS requires to broadcast the
-discovery packet. It's an Apple‑managed entitlement — request it at
-<https://developer.apple.com/contact/request/networking-multicast> and include
-it in your provisioning profile. Everything except hub auto‑discovery works
-without it (enter the hub IP manually).
+The multicast entitlement is an Apple‑approval‑gated capability, so it is **off
+by default** — the project ships without `CODE_SIGN_ENTITLEMENTS` set, which
+means it builds, archives, and uploads to App Store Connect with automatic
+signing and **no waiting on Apple**. Everything works except broadcast
+auto‑discovery of the hub; pair the hub by typing its IP instead (Settings →
+IR Hubs → Add Manually).
+
+To enable auto‑discovery later: request the entitlement at
+<https://developer.apple.com/contact/request/networking-multicast>, and once
+granted add this back to the target's Debug/Release build settings:
+`CODE_SIGN_ENTITLEMENTS = SupportingFiles/UniversalRemote.entitlements;` (the
+entitlements file is still in the repo).
 
 ## Notes & limitations
 
