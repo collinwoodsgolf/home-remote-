@@ -96,6 +96,17 @@ struct DeviceSettingsView: View {
             }
         }
 
+        Section {
+            Toggle("RF remote (315 / 433 MHz)", isOn: Binding(
+                get: { device.usesRFLearning },
+                set: { var d = device; d.usesRFLearning = $0; store.update(d) }
+            ))
+        } footer: {
+            Text(device.usesRFLearning
+                 ? "Learning uses the RF sweep: hold the button to find the frequency, then tap to capture. Requires an RF-capable hub (RM Pro / RM4 Pro) and a handheld RF transmitter to learn from."
+                 : "Turn on if this device's remote is radio-frequency (RF) rather than infrared — common for motorized projector screens and some ceiling fans.")
+        }
+
         if device.kind == .projectorScreen {
             Section {
                 Stepper(value: Binding(

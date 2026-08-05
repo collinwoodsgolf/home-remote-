@@ -79,13 +79,41 @@ actor BroadlinkHub {
         _ = try await sendCommand(0x03)
     }
 
-    /// Read back the IR code captured since `enterLearning()`. Throws
-    /// `.notLearned` until the hub has actually received a burst.
+    /// Read back the code captured since learning started (works for both the
+    /// IR and RF flows). Throws `.notLearned` until the hub has captured one.
     func readLearnedCode() async throws -> [UInt8] {
         try ensureAuthenticated()
         let payload = try await sendCommand(0x04)
         guard !payload.isEmpty else { throw RemoteError.notLearned }
         return payload
+    }
+
+    // MARK: - RF learning (RM Pro / RM4 Pro only)
+
+    /// Begin scanning for the RF carrier frequency. The user should press and
+    /// hold the button on their RF remote while `checkFrequency()` is polled.
+    func startRFSweep() async throws {
+        try ensureAuthenticated()
+        _ = try await sendCommand(0x19)
+    }
+
+    /// True once the hub has locked onto the RF frequency.
+    func checkFrequencyFound() async throws -> Bool {
+        try ensureAuthenticated()
+        let payload = try await sendCommand(0x1a)
+        return payload.first == 1
+    }
+
+    /// Lock onto the found frequency and prepare to capture the actual packet.
+    /// After this, the user taps the same button to emit the code.
+    func findRFPacket() async throws {
+        try ensureAuthenticated()
+        _ = try await sendCommand(0x1b)
+    }
+
+    /// Abort an in-progress RF sweep (safe to call even if none is active).
+    func cancelRFSweep() async {
+        _ = try? await sendCommand(0x1e)
     }
 
     // MARK: - Command framing (rmmini vs rm4)

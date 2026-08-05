@@ -116,10 +116,12 @@ without it (enter the hub IP manually).
   — no need to watch it. Set the travel time under the gear icon (tap Lower,
   count the seconds to fully down, enter that). A live countdown and a manual
   **Stop Now** button are shown while it moves.
-  - *If your screen's remote is **RF** (433 MHz) rather than IR — common for
-    motorized screens — you need an **RM4 Pro / RM Pro** (the RM4 **Mini** is
-    IR‑only). RF button learning isn't wired into the UI yet; tell me and I'll
-    add the RF learn sequence. IR‑remote screens work today.*
+  - *Many motorized screens (e.g. the TP‑06RF, **315 MHz**) are **RF**, not IR.
+    Turn on **RF remote** in the device's settings to use the two‑phase RF learn
+    (hold the button to lock the frequency, then tap to capture). This needs an
+    **RM4 Pro / RM Pro** (the RM4 **Mini** is IR‑only) **and a handheld RF
+    transmitter to learn from** — an RF **receiver** box with local buttons
+    emits nothing to capture.*
 - The Broadlink implementation supports both the original RM mini/Pro framing
   and the RM4 generation (auto‑selected from the reported device type).
 - Codes and hub pairings are stored locally on the device; nothing leaves your

@@ -83,10 +83,17 @@ struct Device: Codable, Identifiable, Hashable {
     /// can lower the screen with one tap and stop it by itself.
     var screenTravelSeconds: Double = 25
 
+    /// When true, learning uses the RF sweep flow (315/433 MHz) instead of IR.
+    /// Requires an RF-capable hub (RM Pro / RM4 Pro). Sending a learned code is
+    /// identical for IR and RF, so only learning differs.
+    var usesRFLearning: Bool = false
+
     init(kind: DeviceKind, name: String? = nil) {
         self.kind = kind
         self.name = name ?? kind.displayName
         self.transport = kind.defaultTransport
+        // Motorized screens are almost always RF; default their learning to RF.
+        self.usesRFLearning = (kind == .projectorScreen)
     }
 
     // Upgrade-safe decoding: fields added in later versions fall back to
@@ -94,7 +101,7 @@ struct Device: Codable, Identifiable, Hashable {
     // survive an app update instead of failing to decode.
     enum CodingKeys: String, CodingKey {
         case id, kind, name, transport, hubID, networkHost, networkPort
-        case learnedCodes, screenTravelSeconds
+        case learnedCodes, screenTravelSeconds, usesRFLearning
     }
 
     init(from decoder: Decoder) throws {
@@ -108,6 +115,7 @@ struct Device: Codable, Identifiable, Hashable {
         networkPort = try c.decodeIfPresent(Int.self, forKey: .networkPort) ?? 5555
         learnedCodes = try c.decodeIfPresent([String: String].self, forKey: .learnedCodes) ?? [:]
         screenTravelSeconds = try c.decodeIfPresent(Double.self, forKey: .screenTravelSeconds) ?? 25
+        usesRFLearning = try c.decodeIfPresent(Bool.self, forKey: .usesRFLearning) ?? (kind == .projectorScreen)
     }
 
     /// Whether the given logical button has a code/handler ready to fire.
