@@ -27,6 +27,7 @@ final class DeviceStore: ObservableObject {
             Device(kind: .tclSpeaker),
             Device(kind: .frigidaireAC),
             Device(kind: .yaberProjector),
+            Device(kind: .projectorScreen),
             Device(kind: .towerFan),
         ]
         save()

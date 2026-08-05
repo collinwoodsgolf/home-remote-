@@ -11,8 +11,15 @@ final class RemoteController: ObservableObject {
     @Published var lastError: String?
     @Published var busyButton: RemoteButtonID?
 
+    /// While a motorized screen is travelling, the seconds remaining until the
+    /// app auto-stops it at the endpoint (keyed by device id). Drives the live
+    /// countdown / progress in the UI.
+    @Published var screenCountdowns: [UUID: Int] = [:]
+
     private var fireTVControllers: [UUID: FireTVController] = [:]
     private var hubControllers: [String: BroadlinkHub] = [:]
+    private var screenTasks: [UUID: Task<Void, Never>] = [:]
+    private var screenGeneration: [UUID: Int] = [:]
 
     init(store: DeviceStore) {
         self.store = store
@@ -80,6 +87,80 @@ final class RemoteController: ObservableObject {
 
     func invalidate(_ device: Device) {
         fireTVControllers[device.id] = nil
+    }
+
+    // MARK: - Motorized projector screen
+
+    /// True while this screen is travelling under app control.
+    func isScreenMoving(_ device: Device) -> Bool {
+        screenCountdowns[device.id] != nil
+    }
+
+    /// Lower the screen and automatically stop it at the bottom endpoint after
+    /// the calibrated travel time — one tap, no need to watch and hit stop.
+    func lowerScreen(_ device: Device) {
+        moveScreen(device, direction: .screenDown)
+    }
+
+    /// Raise the screen and auto-stop at the top endpoint.
+    func raiseScreen(_ device: Device) {
+        moveScreen(device, direction: .screenUp)
+    }
+
+    /// Stop a screen that's currently travelling (cancels the auto-stop timer;
+    /// the stop command is still sent immediately).
+    func stopScreen(_ device: Device) {
+        // Cancelling the task makes its sleep throw, so it falls through to the
+        // stop command and clears the countdown.
+        screenTasks[device.id]?.cancel()
+    }
+
+    private func moveScreen(_ device: Device, direction: RemoteButtonID) {
+        guard direction == .screenDown || direction == .screenUp else { return }
+        // Restart cleanly if it's already moving.
+        screenTasks[device.id]?.cancel()
+
+        // A generation token lets a superseded task exit without clobbering the
+        // state of the newer one that replaced it.
+        let gen = (screenGeneration[device.id] ?? 0) + 1
+        screenGeneration[device.id] = gen
+        let seconds = max(1, Int(device.screenTravelSeconds.rounded()))
+
+        let task = Task { [weak self] in
+            guard let self else { return }
+            func isCurrent() -> Bool { self.screenGeneration[device.id] == gen }
+
+            do {
+                try await self.sendInfrared(direction, device: device)
+            } catch {
+                if isCurrent() {
+                    self.lastError = error.localizedDescription
+                    self.screenCountdowns[device.id] = nil
+                }
+                return
+            }
+
+            // Count down to the endpoint. A manual Stop cancels the task, which
+            // makes the sleep throw and breaks out to send the stop early.
+            for remaining in stride(from: seconds, through: 1, by: -1) {
+                if !isCurrent() { return }
+                self.screenCountdowns[device.id] = remaining
+                do {
+                    try await Task.sleep(nanoseconds: 1_000_000_000)
+                } catch {
+                    break
+                }
+            }
+
+            // Endpoint reached (or user stopped): halt the motor. Screens with
+            // built-in limit switches ignore a redundant stop harmlessly.
+            try? await self.sendInfrared(.screenStop, device: device)
+            if isCurrent() {
+                self.screenCountdowns[device.id] = nil
+                self.screenTasks[device.id] = nil
+            }
+        }
+        screenTasks[device.id] = task
     }
 
     /// Launch a streaming app on a Fire TV by package name.

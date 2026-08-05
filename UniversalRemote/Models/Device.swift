@@ -8,27 +8,30 @@ enum DeviceKind: String, Codable, CaseIterable, Identifiable {
     case frigidaireAC
     case yaberProjector
     case towerFan
+    case projectorScreen
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .tclSpeaker:     return "TCL Speaker"
-        case .fireTV:         return "Amazon Fire TV Stick"
-        case .frigidaireAC:   return "Frigidaire Window AC"
-        case .yaberProjector: return "Yaber Projector"
-        case .towerFan:       return "Tower Fan"
+        case .tclSpeaker:      return "TCL Speaker"
+        case .fireTV:          return "Amazon Fire TV Stick"
+        case .frigidaireAC:    return "Frigidaire Window AC"
+        case .yaberProjector:  return "Yaber Projector"
+        case .towerFan:        return "Tower Fan"
+        case .projectorScreen: return "Projector Screen"
         }
     }
 
     /// SF Symbol used for the device tile.
     var symbolName: String {
         switch self {
-        case .tclSpeaker:     return "hifispeaker.fill"
-        case .fireTV:         return "tv.fill"
-        case .frigidaireAC:   return "snowflake"
-        case .yaberProjector: return "videoprojector.fill"
-        case .towerFan:       return "fan.fill"
+        case .tclSpeaker:      return "hifispeaker.fill"
+        case .fireTV:          return "tv.fill"
+        case .frigidaireAC:    return "snowflake"
+        case .yaberProjector:  return "videoprojector.fill"
+        case .towerFan:        return "fan.fill"
+        case .projectorScreen: return "rectangle.arrowtriangle.2.inward"
         }
     }
 
@@ -37,11 +40,12 @@ enum DeviceKind: String, Codable, CaseIterable, Identifiable {
     /// the network directly.
     var defaultTransport: Transport {
         switch self {
-        case .fireTV:         return .network        // ADB over WiFi (with IR fallback)
+        case .fireTV:          return .network        // ADB over WiFi (with IR fallback)
         case .tclSpeaker,
              .frigidaireAC,
              .yaberProjector,
-             .towerFan:       return .infrared       // via Broadlink hub
+             .towerFan,
+             .projectorScreen: return .infrared       // via Broadlink hub
         }
     }
 }
@@ -74,10 +78,36 @@ struct Device: Codable, Identifiable, Hashable {
     /// Stored as base64 of the raw Broadlink IR payload.
     var learnedCodes: [String: String] = [:]
 
+    /// For a motorized projector screen: how many seconds it takes to travel
+    /// fully from top to bottom. Used to auto-stop at the endpoint so the app
+    /// can lower the screen with one tap and stop it by itself.
+    var screenTravelSeconds: Double = 25
+
     init(kind: DeviceKind, name: String? = nil) {
         self.kind = kind
         self.name = name ?? kind.displayName
         self.transport = kind.defaultTransport
+    }
+
+    // Upgrade-safe decoding: fields added in later versions fall back to
+    // sensible defaults so previously-saved devices (and their learned codes)
+    // survive an app update instead of failing to decode.
+    enum CodingKeys: String, CodingKey {
+        case id, kind, name, transport, hubID, networkHost, networkPort
+        case learnedCodes, screenTravelSeconds
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        kind = try c.decode(DeviceKind.self, forKey: .kind)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? kind.displayName
+        transport = try c.decodeIfPresent(Transport.self, forKey: .transport) ?? kind.defaultTransport
+        hubID = try c.decodeIfPresent(String.self, forKey: .hubID)
+        networkHost = try c.decodeIfPresent(String.self, forKey: .networkHost)
+        networkPort = try c.decodeIfPresent(Int.self, forKey: .networkPort) ?? 5555
+        learnedCodes = try c.decodeIfPresent([String: String].self, forKey: .learnedCodes) ?? [:]
+        screenTravelSeconds = try c.decodeIfPresent(Double.self, forKey: .screenTravelSeconds) ?? 25
     }
 
     /// Whether the given logical button has a code/handler ready to fire.

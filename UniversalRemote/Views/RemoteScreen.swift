@@ -30,6 +30,11 @@ struct RemoteScreen: View {
                 if needsSetup(device) {
                     SetupBanner(device: device)
                 }
+
+                if device.kind == .projectorScreen {
+                    ScreenControl(device: device)
+                }
+
                 ForEach(layout.rows) { row in
                     if row.isDPad {
                         DPadRow(buttons: row.buttons, device: device)
@@ -149,6 +154,82 @@ private struct AppShortcutsGrid: View {
             }
         }
         .padding(.top, 8)
+    }
+}
+
+/// Primary control for a motorized projector screen: one-tap Lower/Raise that
+/// automatically stops at the endpoint, with a live countdown and a manual Stop.
+private struct ScreenControl: View {
+    let device: Device
+    @EnvironmentObject private var controller: RemoteController
+
+    private var remaining: Int? { controller.screenCountdowns[device.id] }
+    private var moving: Bool { remaining != nil }
+    private var canLower: Bool { device.canSend(.screenDown) }
+    private var canRaise: Bool { device.canSend(.screenUp) }
+    private var total: Int { max(1, Int(device.screenTravelSeconds.rounded())) }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            if let remaining {
+                VStack(spacing: 8) {
+                    ProgressView(value: Double(total - remaining), total: Double(total))
+                        .tint(.blue)
+                    Text("Auto-stopping at the endpoint in \(remaining)s")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+
+            HStack(spacing: 12) {
+                bigButton(title: "Raise", system: "arrow.up.to.line",
+                          enabled: canRaise && !moving) {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    controller.raiseScreen(device)
+                }
+                bigButton(title: "Lower", system: "arrow.down.to.line",
+                          enabled: canLower && !moving) {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    controller.lowerScreen(device)
+                }
+            }
+
+            if moving {
+                Button(role: .destructive) {
+                    UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                    controller.stopScreen(device)
+                } label: {
+                    Label("Stop Now", systemImage: "stop.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+            }
+
+            if !canLower || !canRaise {
+                Text("Learn the Raise / Stop / Lower keys from your screen's remote first (gear icon).")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding()
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func bigButton(title: String, system: String, enabled: Bool,
+                           action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: system).font(.system(size: 30, weight: .semibold))
+                Text(title).font(.headline)
+            }
+            .frame(maxWidth: .infinity, minHeight: 96)
+            .background(.blue.opacity(enabled ? 0.18 : 0.06),
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .foregroundStyle(enabled ? Color.blue : Color.secondary)
+        }
+        .buttonStyle(PressableButtonStyle())
+        .disabled(!enabled)
     }
 }
 

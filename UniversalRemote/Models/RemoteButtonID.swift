@@ -36,6 +36,9 @@ enum RemoteButtonID: String, Codable, CaseIterable {
     case speedUp, speedDown
     case oscillate, naturalWind, sleepMode
 
+    // Motorized projector screen
+    case screenUp, screenDown, screenStop
+
     var label: String {
         switch self {
         case .power:           return "Power"
@@ -88,6 +91,9 @@ enum RemoteButtonID: String, Codable, CaseIterable {
         case .oscillate:       return "Oscillate"
         case .naturalWind:     return "Natural"
         case .sleepMode:       return "Sleep"
+        case .screenUp:        return "Raise"
+        case .screenDown:      return "Lower"
+        case .screenStop:      return "Stop"
         }
     }
 
@@ -115,6 +121,9 @@ enum RemoteButtonID: String, Codable, CaseIterable {
         case .mute:         return "speaker.slash.fill"
         case .bluetoothPairing: return "antenna.radiowaves.left.and.right"
         case .oscillate:    return "arrow.left.and.right"
+        case .screenUp:     return "arrow.up.to.line"
+        case .screenDown:   return "arrow.down.to.line"
+        case .screenStop:   return "stop.fill"
         default:            return nil
         }
     }

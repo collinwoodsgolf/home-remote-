@@ -15,11 +15,12 @@ struct RemoteLayout {
 
     static func layout(for kind: DeviceKind) -> RemoteLayout {
         switch kind {
-        case .fireTV:         return fireTV
-        case .tclSpeaker:     return tclSpeaker
-        case .frigidaireAC:   return frigidaireAC
-        case .yaberProjector: return yaberProjector
-        case .towerFan:       return towerFan
+        case .fireTV:          return fireTV
+        case .tclSpeaker:      return tclSpeaker
+        case .frigidaireAC:    return frigidaireAC
+        case .yaberProjector:  return yaberProjector
+        case .towerFan:        return towerFan
+        case .projectorScreen: return projectorScreen
         }
     }
 
@@ -69,5 +70,11 @@ struct RemoteLayout {
         Row(buttons: [.speedDown, .speedUp]),
         Row(buttons: [.oscillate, .naturalWind]),
         Row(buttons: [.timer, .sleepMode]),
+    ])
+
+    // The auto-lower control is rendered separately (ScreenControl); these are
+    // the raw Up/Stop/Down keys used for learning and manual nudging.
+    static let projectorScreen = RemoteLayout(rows: [
+        Row(buttons: [.screenUp, .screenStop, .screenDown]),
     ])
 }

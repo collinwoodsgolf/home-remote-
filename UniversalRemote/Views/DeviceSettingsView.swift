@@ -96,6 +96,25 @@ struct DeviceSettingsView: View {
             }
         }
 
+        if device.kind == .projectorScreen {
+            Section {
+                Stepper(value: Binding(
+                    get: { device.screenTravelSeconds },
+                    set: { var d = device; d.screenTravelSeconds = $0; store.update(d) }
+                ), in: 3...180, step: 1) {
+                    HStack {
+                        Text("Travel time")
+                        Spacer()
+                        Text("\(Int(device.screenTravelSeconds))s").foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text("Auto-Stop Calibration")
+            } footer: {
+                Text("Time the screen takes to travel fully from top to bottom. Tap Lower once, count the seconds until it's all the way down, and set that here — the app then stops it there automatically. If your screen has built-in limit switches you can leave this generous; the extra Stop is harmless.")
+            }
+        }
+
         Section {
             ForEach(RemoteLayout.layout(for: device.kind).rows.flatMap(\.buttons), id: \.self) { button in
                 Button {

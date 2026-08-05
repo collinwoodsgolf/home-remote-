@@ -9,6 +9,7 @@ A SwiftUI iPhone/iPad app that replaces the physical remotes for:
 | **Frigidaire Window AC** | Infrared, via a Wi‑Fi → IR bridge |
 | **TCL Speaker** | Infrared, via a Wi‑Fi → IR bridge |
 | **Drew Tower Fan** | Infrared, via a Wi‑Fi → IR bridge |
+| **Projector Screen** | Infrared (or RF) hub — one‑tap lower with auto‑stop |
 
 ## Read this first — the IR reality
 
@@ -103,6 +104,16 @@ without it (enter the hub IP manually).
   (Netflix, Prime Video, YouTube, Disney+, Hulu, Spotify) that fire a launcher
   intent for the app's Fire OS package. Edit `FireTVAppShortcut.defaults` to add
   your own.
+- **Projector screen (auto‑lower):** the screen face has one‑tap **Lower** /
+  **Raise** that send the command and then automatically send **Stop** after a
+  calibrated travel time, so the screen stops itself at the bottom/top endpoint
+  — no need to watch it. Set the travel time under the gear icon (tap Lower,
+  count the seconds to fully down, enter that). A live countdown and a manual
+  **Stop Now** button are shown while it moves.
+  - *If your screen's remote is **RF** (433 MHz) rather than IR — common for
+    motorized screens — you need an **RM4 Pro / RM Pro** (the RM4 **Mini** is
+    IR‑only). RF button learning isn't wired into the UI yet; tell me and I'll
+    add the RF learn sequence. IR‑remote screens work today.*
 - The Broadlink implementation supports both the original RM mini/Pro framing
   and the RM4 generation (auto‑selected from the reported device type).
 - Codes and hub pairings are stored locally on the device; nothing leaves your
