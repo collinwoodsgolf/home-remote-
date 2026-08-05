@@ -1,20 +1,28 @@
 import SwiftUI
+import UIKit
 
-/// Home screen: a grid of the user's devices plus an entry point to hub setup.
+/// Home screen: one-tap scenes, a grid of the user's devices, and an entry
+/// point to hub setup.
 struct ContentView: View {
     @EnvironmentObject private var store: DeviceStore
+    @EnvironmentObject private var controller: RemoteController
 
     private let columns = [GridItem(.adaptive(minimum: 150), spacing: 16)]
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVGrid(columns: columns, spacing: 16) {
-                    ForEach(store.devices) { device in
-                        NavigationLink(value: device) {
-                            DeviceTile(device: device)
+                VStack(alignment: .leading, spacing: 20) {
+                    if !store.scenes.isEmpty {
+                        ScenesRow()
+                    }
+                    LazyVGrid(columns: columns, spacing: 16) {
+                        ForEach(store.devices) { device in
+                            NavigationLink(value: device) {
+                                DeviceTile(device: device)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
                 .padding()
@@ -29,6 +37,44 @@ struct ContentView: View {
                         HubSetupView()
                     } label: {
                         Image(systemName: "wifi.router")
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Horizontal row of one-tap scene chips.
+private struct ScenesRow: View {
+    @EnvironmentObject private var store: DeviceStore
+    @EnvironmentObject private var controller: RemoteController
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Scenes")
+                .font(.headline)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(store.scenes) { scene in
+                        Button {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            controller.runScene(scene)
+                        } label: {
+                            HStack(spacing: 8) {
+                                if controller.runningSceneID == scene.id {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: scene.symbol)
+                                }
+                                Text(scene.name).font(.subheadline.weight(.semibold))
+                            }
+                            .padding(.horizontal, 16).padding(.vertical, 12)
+                            .background(.blue.opacity(0.16),
+                                        in: Capsule())
+                            .foregroundStyle(.blue)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(controller.runningSceneID != nil)
                     }
                 }
             }

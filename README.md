@@ -100,6 +100,12 @@ without it (enter the hub IP manually).
   IR learning won't apply and you'd need its own app for transport control.
 - **Fire TV power:** `KEYCODE_POWER` sleeps/wakes the device; full TV power
   depends on HDMI‑CEC support of your TV.
+- **Scenes:** the home screen has one‑tap scene chips that chain actions across
+  devices, with per‑step delays. Two are seeded — **Movie Night** (projector on
+  → screen down → Fire TV) and **All Off** (screen up → projector/fan/AC off).
+  Steps that reference a device you haven't set up are skipped safely. Scenes
+  are stored in `DeviceStore` (`seedDefaultScenes`); a visual editor is a
+  natural next addition.
 - **Fire TV app shortcuts:** the Fire TV face includes one‑tap launchers
   (Netflix, Prime Video, YouTube, Disney+, Hulu, Spotify) that fire a launcher
   intent for the app's Fire OS package. Edit `FireTVAppShortcut.defaults` to add

@@ -16,6 +16,9 @@ final class RemoteController: ObservableObject {
     /// countdown / progress in the UI.
     @Published var screenCountdowns: [UUID: Int] = [:]
 
+    /// The scene currently running, if any (drives its tile's spinner).
+    @Published var runningSceneID: UUID?
+
     private var fireTVControllers: [UUID: FireTVController] = [:]
     private var hubControllers: [String: BroadlinkHub] = [:]
     private var screenTasks: [UUID: Task<Void, Never>] = [:]
@@ -30,17 +33,23 @@ final class RemoteController: ObservableObject {
         busyButton = button
         Task {
             do {
-                switch device.transport {
-                case .network:
-                    try await sendNetwork(button, device: device)
-                case .infrared:
-                    try await sendInfrared(button, device: device)
-                }
-                await MainActor.run { self.lastError = nil }
+                try await perform(button, on: device)
+                self.lastError = nil
             } catch {
-                await MainActor.run { self.lastError = error.localizedDescription }
+                self.lastError = error.localizedDescription
             }
-            await MainActor.run { self.busyButton = nil }
+            self.busyButton = nil
+        }
+    }
+
+    /// Perform a button on the right transport, awaiting completion. Shared by
+    /// single presses and scene steps (which need ordered, awaited execution).
+    private func perform(_ button: RemoteButtonID, on device: Device) async throws {
+        switch device.transport {
+        case .network:
+            try await sendNetwork(button, device: device)
+        case .infrared:
+            try await sendInfrared(button, device: device)
         }
     }
 
@@ -87,6 +96,34 @@ final class RemoteController: ObservableObject {
 
     func invalidate(_ device: Device) {
         fireTVControllers[device.id] = nil
+    }
+
+    // MARK: - Scenes
+
+    /// Run a scene's steps in order, honoring each step's delay. Screen
+    /// lower/raise steps use the auto-stop behavior; everything else is an
+    /// awaited button press so ordering is preserved.
+    func runScene(_ scene: RemoteScene) {
+        guard runningSceneID == nil else { return }   // ignore double-taps
+        runningSceneID = scene.id
+        Task {
+            for step in scene.steps {
+                if step.delaySeconds > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(step.delaySeconds * 1_000_000_000))
+                }
+                guard let device = store.devices.first(where: { $0.id == step.deviceID }) else { continue }
+
+                if device.kind == .projectorScreen && step.button == .screenDown {
+                    lowerScreen(device)
+                } else if device.kind == .projectorScreen && step.button == .screenUp {
+                    raiseScreen(device)
+                } else {
+                    do { try await perform(step.button, on: device) }
+                    catch { self.lastError = error.localizedDescription }
+                }
+            }
+            self.runningSceneID = nil
+        }
     }
 
     // MARK: - Motorized projector screen
