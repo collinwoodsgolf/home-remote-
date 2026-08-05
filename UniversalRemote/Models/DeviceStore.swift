@@ -29,8 +29,8 @@ final class DeviceStore: ObservableObject {
             Device(kind: .fireTV),
             Device(kind: .tclSpeaker),
             Device(kind: .frigidaireAC),
-            Device(kind: .yaberProjector),
-            Device(kind: .projectorScreen),
+            Device(kind: .yaberProjector, name: "Yaber Pro V9"),
+            Device(kind: .projectorScreen, name: "Powerextra Screen"),
             Device(kind: .towerFan),
         ]
         save()
