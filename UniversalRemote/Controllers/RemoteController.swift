@@ -163,14 +163,13 @@ final class RemoteController: ObservableObject {
         screenGeneration[device.id] = gen
         let seconds = max(1, Int(device.screenTravelSeconds.rounded()))
 
-        let task = Task { [weak self] in
+        let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            func isCurrent() -> Bool { self.screenGeneration[device.id] == gen }
 
             do {
                 try await self.sendInfrared(direction, device: device)
             } catch {
-                if isCurrent() {
+                if self.screenGeneration[device.id] == gen {
                     self.lastError = error.localizedDescription
                     self.screenCountdowns[device.id] = nil
                 }
@@ -180,7 +179,7 @@ final class RemoteController: ObservableObject {
             // Count down to the endpoint. A manual Stop cancels the task, which
             // makes the sleep throw and breaks out to send the stop early.
             for remaining in stride(from: seconds, through: 1, by: -1) {
-                if !isCurrent() { return }
+                if self.screenGeneration[device.id] != gen { return }
                 self.screenCountdowns[device.id] = remaining
                 do {
                     try await Task.sleep(nanoseconds: 1_000_000_000)
@@ -192,7 +191,7 @@ final class RemoteController: ObservableObject {
             // Endpoint reached (or user stopped): halt the motor. Screens with
             // built-in limit switches ignore a redundant stop harmlessly.
             try? await self.sendInfrared(.screenStop, device: device)
-            if isCurrent() {
+            if self.screenGeneration[device.id] == gen {
                 self.screenCountdowns[device.id] = nil
                 self.screenTasks[device.id] = nil
             }

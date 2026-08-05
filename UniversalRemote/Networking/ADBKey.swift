@@ -77,7 +77,7 @@ enum ADBKey {
     // MARK: - PKCS#1 DER parsing (RSAPublicKey ::= SEQUENCE { modulus, exponent })
 
     private static func parsePKCS1(_ der: Data) throws -> (modulus: [UInt8], exponent: UInt32) {
-        var bytes = [UInt8](der)
+        let bytes = [UInt8](der)
         var i = 0
 
         func readLength() throws -> Int {
