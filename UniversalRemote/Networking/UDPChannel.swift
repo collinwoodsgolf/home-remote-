@@ -130,7 +130,13 @@ enum RemoteError: LocalizedError {
         switch self {
         case .timeout:                 return "The device did not respond in time."
         case .noResponse:              return "No response from the device."
-        case .deviceError(let code):   return "The hub reported error code \(code)."
+        case .deviceError(let code):
+            // The hub reports errors as signed 16-bit values (65535 == -1).
+            let signed = Int16(bitPattern: UInt16(truncatingIfNeeded: code))
+            if signed == -1 || signed == -7 {
+                return "The hub refused authentication (code \(signed)). It's likely locked: in the BroadLink app, open the hub's settings and turn OFF “Lock device”, then try again."
+            }
+            return "The hub reported error code \(signed)."
         case .notAuthenticated:        return "The hub has not been authenticated yet."
         case .cryptoFailure:           return "Encryption/decryption failed."
         case .noHubPaired:             return "No IR hub is paired. Add a hub in Settings."
