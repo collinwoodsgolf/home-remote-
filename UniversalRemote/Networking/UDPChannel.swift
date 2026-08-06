@@ -37,17 +37,18 @@ final class UDPChannel {
     func start(timeout: TimeInterval = 5) async throws {
         let guardBox = ResumeGuard()
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            let timer = DispatchWorkItem {
+            // The timer is never cancelled; if it fires after the callback won
+            // the race, claim() returns false and it does nothing.
+            queue.asyncAfter(deadline: .now() + timeout) {
                 if guardBox.claim() { cont.resume(throwing: RemoteError.timeout) }
             }
-            queue.asyncAfter(deadline: .now() + timeout, execute: timer)
 
             connection.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
-                    if guardBox.claim() { timer.cancel(); cont.resume() }
+                    if guardBox.claim() { cont.resume() }
                 case .failed(let error):
-                    if guardBox.claim() { timer.cancel(); cont.resume(throwing: error) }
+                    if guardBox.claim() { cont.resume(throwing: error) }
                 default:
                     break
                 }
@@ -76,14 +77,12 @@ final class UDPChannel {
     func receive(timeout: TimeInterval = 5) async throws -> Data {
         let guardBox = ResumeGuard()
         return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
-            let timer = DispatchWorkItem {
+            queue.asyncAfter(deadline: .now() + timeout) {
                 if guardBox.claim() { cont.resume(throwing: RemoteError.timeout) }
             }
-            queue.asyncAfter(deadline: .now() + timeout, execute: timer)
 
             connection.receiveMessage { content, _, _, error in
                 guard guardBox.claim() else { return }
-                timer.cancel()
                 if let error {
                     cont.resume(throwing: error)
                 } else if let content, !content.isEmpty {

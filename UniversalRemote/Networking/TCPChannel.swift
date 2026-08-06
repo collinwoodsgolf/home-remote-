@@ -21,17 +21,17 @@ final class TCPChannel {
     func start(timeout: TimeInterval = 6) async throws {
         let guardBox = ResumeGuardTCP()
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            let timer = DispatchWorkItem {
+            // Never cancelled; a late fire loses the claim() race and is a no-op.
+            queue.asyncAfter(deadline: .now() + timeout) {
                 if guardBox.claim() { cont.resume(throwing: RemoteError.timeout) }
             }
-            queue.asyncAfter(deadline: .now() + timeout, execute: timer)
 
             connection.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
-                    if guardBox.claim() { timer.cancel(); cont.resume() }
+                    if guardBox.claim() { cont.resume() }
                 case .failed(let error), .waiting(let error):
-                    if guardBox.claim() { timer.cancel(); cont.resume(throwing: error) }
+                    if guardBox.claim() { cont.resume(throwing: error) }
                 default:
                     break
                 }
@@ -64,15 +64,13 @@ final class TCPChannel {
     private func receiveChunk(max: Int, timeout: TimeInterval) async throws -> Data {
         let guardBox = ResumeGuardTCP()
         return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
-            let timer = DispatchWorkItem {
+            queue.asyncAfter(deadline: .now() + timeout) {
                 if guardBox.claim() { cont.resume(throwing: RemoteError.timeout) }
             }
-            queue.asyncAfter(deadline: .now() + timeout, execute: timer)
 
             connection.receive(minimumIncompleteLength: 1, maximumLength: max) {
                 content, _, isComplete, error in
                 guard guardBox.claim() else { return }
-                timer.cancel()
                 if let error { cont.resume(throwing: error) }
                 else if let content, !content.isEmpty { cont.resume(returning: content) }
                 else if isComplete { cont.resume(throwing: RemoteError.noResponse) }

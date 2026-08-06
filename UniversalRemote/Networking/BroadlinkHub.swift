@@ -31,8 +31,18 @@ actor BroadlinkHub {
     private var count: UInt16 = UInt16.random(in: 0..<0x7fff)
     private var authenticated = false
 
+    /// MAC bytes as written into outgoing packets. The reference protocol
+    /// sends them exactly as they appear in the discovery response; hubs drop
+    /// packets whose MAC doesn't match, so if auth times out we flip the order
+    /// once and remember whichever the hub answers to.
+    private var wireMAC: [UInt8]
+
+    /// True if the hub only answered with the flipped byte order (diagnostics).
+    var usedAlternateMACOrder: Bool { wireMAC != info.mac }
+
     init(info: BroadlinkHubInfo) {
         self.info = info
+        self.wireMAC = info.mac
     }
 
     // MARK: - Public API
@@ -44,10 +54,28 @@ actor BroadlinkHub {
     }
 
     func authenticate() async throws {
+        do {
+            try await performAuth()
+        } catch RemoteError.timeout {
+            // A hub that drops packets outright usually means the MAC field
+            // doesn't match. Flip the byte order once and retry; keep whichever
+            // order the hub answers to for the rest of the session.
+            wireMAC = wireMAC.reversed()
+            do {
+                try await performAuth()
+            } catch {
+                wireMAC = wireMAC.reversed()   // restore for future attempts
+                throw error
+            }
+        }
+    }
+
+    private func performAuth() async throws {
         // The auth command is always encrypted with the factory-default key, so
         // reset state in case this hub was authenticated earlier in the session.
         key = BroadlinkHub.defaultKey
         deviceID = [0, 0, 0, 0]
+        authenticated = false
 
         var payload = [UInt8](repeating: 0, count: 0x50)
         for i in 0x04...0x12 { payload[i] = 0x31 }   // 15 bytes of "1"
@@ -56,7 +84,7 @@ actor BroadlinkHub {
         let name: [UInt8] = Array("Test 1".utf8)
         for (i, b) in name.enumerated() { payload[0x30 + i] = b }
 
-        let response = try await sendPacket(command: 0x65, payload: payload)
+        let response = try await sendPacket(command: 0x65, payload: payload, retries: 2)
         guard response.count > 0x38 else { throw RemoteError.noResponse }
         let enc = Array(response[0x38...])
         guard let decrypted = AESCBC.decrypt(enc, key: BroadlinkHub.defaultKey, iv: iv) else {
@@ -102,11 +130,22 @@ actor BroadlinkHub {
 
         do {
             try await authenticate()
-            lines.append("✅ Handshake: OK")
+            lines.append(usedAlternateMACOrder
+                         ? "✅ Handshake: OK (hub wanted flipped MAC order)"
+                         : "✅ Handshake: OK")
+        } catch let error as RemoteError {
+            if case .deviceError(let code) = error {
+                lines.append("❌ Handshake rejected by hub (code \(code)).")
+                lines.append("")
+                lines.append("This usually means the hub is locked against third-party control. In the BroadLink app open the hub → settings → turn OFF “Lock device”, then test again.")
+            } else {
+                lines.append("❌ Handshake failed: \(error.localizedDescription)")
+                lines.append("")
+                lines.append("Tried both MAC byte orders with no answer. Check the BroadLink app's “Lock device” setting is OFF, power-cycle the hub (unplug 10s), and confirm the phone is on the same Wi-Fi band/network as the hub.")
+            }
+            return lines.joined(separator: "\n")
         } catch {
             lines.append("❌ Handshake failed: \(error.localizedDescription)")
-            lines.append("")
-            lines.append("The hub answers discovery but rejects the encrypted session. Try unplugging the hub for 10s, then test again.")
             return lines.joined(separator: "\n")
         }
 
@@ -183,7 +222,7 @@ actor BroadlinkHub {
 
     // MARK: - Low-level packet exchange
 
-    private func sendPacket(command: UInt8, payload: [UInt8]) async throws -> [UInt8] {
+    private func sendPacket(command: UInt8, payload: [UInt8], retries: Int = 3) async throws -> [UInt8] {
         count = (count &+ 1) | 0x8000
 
         var header = [UInt8](repeating: 0, count: 0x38)
@@ -196,9 +235,9 @@ actor BroadlinkHub {
         header[0x28] = UInt8(count & 0xff)
         header[0x29] = UInt8(count >> 8)
 
-        // MAC is stored in response order; the wire wants it reversed.
-        let macReversed = Array(info.mac.reversed())
-        for i in 0..<6 { header[0x2a + i] = macReversed[i] }
+        // The reference protocol writes the MAC exactly as it appeared in the
+        // discovery response (wireMAC may have been auto-flipped during auth).
+        for i in 0..<6 { header[0x2a + i] = wireMAC[i] }
         for i in 0..<4 { header[0x30 + i] = deviceID[i] }
 
         // Payload checksum
@@ -226,7 +265,7 @@ actor BroadlinkHub {
         // UDP is lossy and these hubs are not always prompt, so retry a few
         // times before giving up. Each attempt uses a fresh socket.
         var lastError: Error = RemoteError.noResponse
-        for attempt in 0..<3 {
+        for attempt in 0..<retries {
             let channel = UDPChannel(host: info.host, port: 80)
             do {
                 try await channel.start(timeout: 4)
@@ -245,7 +284,7 @@ actor BroadlinkHub {
                 lastError = error
                 // A device-reported error is a real answer; don't retry it.
                 if case RemoteError.deviceError = error { throw error }
-                if attempt < 2 {
+                if attempt < retries - 1 {
                     try? await Task.sleep(nanoseconds: 400_000_000)
                 }
             }
