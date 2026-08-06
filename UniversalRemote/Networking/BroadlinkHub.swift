@@ -88,6 +88,38 @@ actor BroadlinkHub {
         return payload
     }
 
+    // MARK: - Diagnostics
+
+    /// Human-readable report of what actually happens when we talk to this hub.
+    /// Surfaced in Settings so a failure names the failing step instead of
+    /// hanging silently.
+    func diagnose() async -> String {
+        var lines: [String] = []
+        lines.append("Hub: \(info.name)")
+        lines.append("Address: \(info.host)")
+        lines.append("Type: 0x\(String(info.deviceType, radix: 16)) (\(info.usesV4Framing ? "RM4-style" : "RM-style") framing)")
+        lines.append("MAC: \(info.id)")
+
+        do {
+            try await authenticate()
+            lines.append("✅ Handshake: OK")
+        } catch {
+            lines.append("❌ Handshake failed: \(error.localizedDescription)")
+            lines.append("")
+            lines.append("The hub answers discovery but rejects the encrypted session. Try unplugging the hub for 10s, then test again.")
+            return lines.joined(separator: "\n")
+        }
+
+        do {
+            try await enterLearning()
+            lines.append("✅ Learning mode: entered")
+            await cancelRFSweep()
+        } catch {
+            lines.append("❌ Learning mode failed: \(error.localizedDescription)")
+        }
+        return lines.joined(separator: "\n")
+    }
+
     // MARK: - RF learning (RM Pro / RM4 Pro only)
 
     /// Begin scanning for the RF carrier frequency. The user should press and
@@ -191,18 +223,34 @@ actor BroadlinkHub {
         packet[0x20] = UInt8(checksum & 0xff)
         packet[0x21] = UInt8((checksum >> 8) & 0xff)
 
-        let channel = UDPChannel(host: info.host, port: 80)
-        try await channel.start()
-        defer { channel.cancel() }
-        try await channel.send(Data(packet))
-        let response = [UInt8](try await channel.receive(timeout: 6))
+        // UDP is lossy and these hubs are not always prompt, so retry a few
+        // times before giving up. Each attempt uses a fresh socket.
+        var lastError: Error = RemoteError.noResponse
+        for attempt in 0..<3 {
+            let channel = UDPChannel(host: info.host, port: 80)
+            do {
+                try await channel.start(timeout: 4)
+                try await channel.send(Data(packet))
+                let response = [UInt8](try await channel.receive(timeout: 4))
+                channel.cancel()
 
-        // Bytes 0x22..0x23 carry an error code (0 == ok).
-        if response.count > 0x23 {
-            let code = Int(response[0x22]) | (Int(response[0x23]) << 8)
-            if code != 0 { throw RemoteError.deviceError(code: code) }
+                // Bytes 0x22..0x23 carry an error code (0 == ok).
+                if response.count > 0x23 {
+                    let code = Int(response[0x22]) | (Int(response[0x23]) << 8)
+                    if code != 0 { throw RemoteError.deviceError(code: code) }
+                }
+                return response
+            } catch {
+                channel.cancel()
+                lastError = error
+                // A device-reported error is a real answer; don't retry it.
+                if case RemoteError.deviceError = error { throw error }
+                if attempt < 2 {
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                }
+            }
         }
-        return response
+        throw lastError
     }
 
     private func ensureAuthenticated() throws {

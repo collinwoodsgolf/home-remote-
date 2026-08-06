@@ -1,6 +1,22 @@
 import Foundation
 import Network
 
+/// Guards a continuation so it is resumed exactly once, whether the network
+/// callback or the timeout fires first.
+private final class ResumeGuard: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+
+    /// Returns true exactly once, for whichever caller gets there first.
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if claimed { return false }
+        claimed = true
+        return true
+    }
+}
+
 /// Thin async wrapper around an NWConnection UDP socket. One request → one
 /// response, which is exactly the Broadlink interaction model.
 final class UDPChannel {
@@ -18,16 +34,20 @@ final class UDPChannel {
         UDPChannel(host: "255.255.255.255", port: port)
     }
 
-    func start() async throws {
+    func start(timeout: TimeInterval = 5) async throws {
+        let guardBox = ResumeGuard()
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            let timer = DispatchWorkItem {
+                if guardBox.claim() { cont.resume(throwing: RemoteError.timeout) }
+            }
+            queue.asyncAfter(deadline: .now() + timeout, execute: timer)
+
             connection.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
-                    cont.resume()
-                    self.connection.stateUpdateHandler = nil
+                    if guardBox.claim() { timer.cancel(); cont.resume() }
                 case .failed(let error):
-                    cont.resume(throwing: error)
-                    self.connection.stateUpdateHandler = nil
+                    if guardBox.claim() { timer.cancel(); cont.resume(throwing: error) }
                 default:
                     break
                 }
@@ -37,33 +57,41 @@ final class UDPChannel {
     }
 
     func send(_ data: Data) async throws {
+        let guardBox = ResumeGuard()
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             connection.send(content: data, completion: .contentProcessed { error in
+                guard guardBox.claim() else { return }
                 if let error { cont.resume(throwing: error) }
                 else { cont.resume() }
             })
         }
     }
 
-    /// Receive a single datagram, or throw on timeout.
+    /// Receive a single datagram, or throw `.timeout`.
+    ///
+    /// Implemented with a single continuation plus a timer rather than a task
+    /// group: `receiveMessage` has no cancellation hook, so a task-group race
+    /// would leave that child task suspended forever and deadlock the caller
+    /// (which surfaced as a UI stuck on "Preparing hub…" with no error).
     func receive(timeout: TimeInterval = 5) async throws -> Data {
-        try await withThrowingTaskGroup(of: Data.self) { group in
-            group.addTask {
-                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
-                    self.connection.receiveMessage { content, _, _, error in
-                        if let error { cont.resume(throwing: error) }
-                        else if let content { cont.resume(returning: content) }
-                        else { cont.resume(throwing: RemoteError.noResponse) }
-                    }
+        let guardBox = ResumeGuard()
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
+            let timer = DispatchWorkItem {
+                if guardBox.claim() { cont.resume(throwing: RemoteError.timeout) }
+            }
+            queue.asyncAfter(deadline: .now() + timeout, execute: timer)
+
+            connection.receiveMessage { content, _, _, error in
+                guard guardBox.claim() else { return }
+                timer.cancel()
+                if let error {
+                    cont.resume(throwing: error)
+                } else if let content, !content.isEmpty {
+                    cont.resume(returning: content)
+                } else {
+                    cont.resume(throwing: RemoteError.noResponse)
                 }
             }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                throw RemoteError.timeout
-            }
-            let result = try await group.next()!
-            group.cancelAll()
-            return result
         }
     }
 

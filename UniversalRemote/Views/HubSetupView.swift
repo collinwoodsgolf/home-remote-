@@ -8,6 +8,8 @@ struct HubSetupView: View {
     @State private var found: [BroadlinkHubInfo] = []
     @State private var manualIP = ""
     @State private var manualProbeError: String?
+    @State private var diagnostics: String?
+    @State private var isTesting = false
 
     var body: some View {
         List {
@@ -18,8 +20,28 @@ struct HubSetupView: View {
                 if store.hubs.isEmpty {
                     Text("No hubs paired yet.").foregroundStyle(.secondary)
                 }
+                if let hub = store.hubs.first {
+                    Button {
+                        runDiagnostics(hub)
+                    } label: {
+                        if isTesting {
+                            HStack { ProgressView(); Text("Testing…") }
+                        } else {
+                            Label("Test Connection", systemImage: "stethoscope")
+                        }
+                    }
+                    .disabled(isTesting)
+
+                    if let diagnostics {
+                        Text(diagnostics)
+                            .font(.system(.footnote, design: .monospaced))
+                            .textSelection(.enabled)
+                    }
+                }
             } header: {
                 Text("Paired Hubs")
+            } footer: {
+                Text("If a button never learns, run Test Connection — it names the exact step that fails.")
             }
 
             Section {
@@ -63,6 +85,18 @@ struct HubSetupView: View {
         .navigationTitle("IR Hubs")
         .task {
             if store.hubs.isEmpty { scan() }
+        }
+    }
+
+    private func runDiagnostics(_ info: BroadlinkHubInfo) {
+        isTesting = true
+        diagnostics = nil
+        Task {
+            let report = await BroadlinkHub(info: info).diagnose()
+            await MainActor.run {
+                diagnostics = report
+                isTesting = false
+            }
         }
     }
 

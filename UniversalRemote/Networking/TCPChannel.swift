@@ -2,6 +2,11 @@ import Foundation
 import Network
 
 /// Async TCP socket with exact-length reads, which the ADB framing requires.
+///
+/// Like `UDPChannel`, timeouts are implemented with a single continuation plus
+/// a timer instead of a task group — NWConnection's callbacks have no
+/// cancellation hook, so racing them inside a task group leaves a child task
+/// suspended forever and deadlocks the caller.
 final class TCPChannel {
     private let connection: NWConnection
     private let queue = DispatchQueue(label: "tcp.channel")
@@ -14,35 +19,32 @@ final class TCPChannel {
     }
 
     func start(timeout: TimeInterval = 6) async throws {
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
-                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-                    self.connection.stateUpdateHandler = { state in
-                        switch state {
-                        case .ready:
-                            cont.resume()
-                            self.connection.stateUpdateHandler = nil
-                        case .failed(let error), .waiting(let error):
-                            cont.resume(throwing: error)
-                            self.connection.stateUpdateHandler = nil
-                        default: break
-                        }
-                    }
-                    self.connection.start(queue: self.queue)
+        let guardBox = ResumeGuardTCP()
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            let timer = DispatchWorkItem {
+                if guardBox.claim() { cont.resume(throwing: RemoteError.timeout) }
+            }
+            queue.asyncAfter(deadline: .now() + timeout, execute: timer)
+
+            connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    if guardBox.claim() { timer.cancel(); cont.resume() }
+                case .failed(let error), .waiting(let error):
+                    if guardBox.claim() { timer.cancel(); cont.resume(throwing: error) }
+                default:
+                    break
                 }
             }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                throw RemoteError.timeout
-            }
-            try await group.next()
-            group.cancelAll()
+            connection.start(queue: queue)
         }
     }
 
     func send(_ data: Data) async throws {
+        let guardBox = ResumeGuardTCP()
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             connection.send(content: data, completion: .contentProcessed { error in
+                guard guardBox.claim() else { return }
                 if let error { cont.resume(throwing: error) } else { cont.resume() }
             })
         }
@@ -60,27 +62,38 @@ final class TCPChannel {
     }
 
     private func receiveChunk(max: Int, timeout: TimeInterval) async throws -> Data {
-        try await withThrowingTaskGroup(of: Data.self) { group in
-            group.addTask {
-                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
-                    self.connection.receive(minimumIncompleteLength: 1, maximumLength: max) {
-                        content, _, isComplete, error in
-                        if let error { cont.resume(throwing: error) }
-                        else if let content, !content.isEmpty { cont.resume(returning: content) }
-                        else if isComplete { cont.resume(throwing: RemoteError.noResponse) }
-                        else { cont.resume(throwing: RemoteError.noResponse) }
-                    }
-                }
+        let guardBox = ResumeGuardTCP()
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
+            let timer = DispatchWorkItem {
+                if guardBox.claim() { cont.resume(throwing: RemoteError.timeout) }
             }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                throw RemoteError.timeout
+            queue.asyncAfter(deadline: .now() + timeout, execute: timer)
+
+            connection.receive(minimumIncompleteLength: 1, maximumLength: max) {
+                content, _, isComplete, error in
+                guard guardBox.claim() else { return }
+                timer.cancel()
+                if let error { cont.resume(throwing: error) }
+                else if let content, !content.isEmpty { cont.resume(returning: content) }
+                else if isComplete { cont.resume(throwing: RemoteError.noResponse) }
+                else { cont.resume(throwing: RemoteError.noResponse) }
             }
-            let result = try await group.next()!
-            group.cancelAll()
-            return result
         }
     }
 
     func cancel() { connection.cancel() }
+}
+
+/// Single-resume guard for the TCP continuations.
+private final class ResumeGuardTCP: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if claimed { return false }
+        claimed = true
+        return true
+    }
 }
