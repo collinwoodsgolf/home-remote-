@@ -44,8 +44,11 @@ struct RemoteLayout {
         Row(buttons: [.inputSource, .bluetoothPairing]),
     ])
 
+    // AC remotes broadcast full state with every press, so "on" and "off" are
+    // different frames that must be learned separately — a single toggle
+    // button can only ever replay one of them.
     static let frigidaireAC = RemoteLayout(rows: [
-        Row(buttons: [.power]),
+        Row(buttons: [.powerOn, .powerOff]),
         Row(buttons: [.tempDown, .tempUp]),
         Row(buttons: [.modeCool, .modeFan, .modeEco, .modeDry]),
         Row(buttons: [.fanLow, .fanMedium, .fanHigh, .fanAuto]),
