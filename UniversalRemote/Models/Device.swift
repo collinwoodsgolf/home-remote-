@@ -118,6 +118,23 @@ struct Device: Codable, Identifiable, Hashable {
         usesRFLearning = try c.decodeIfPresent(Bool.self, forKey: .usesRFLearning) ?? (kind == .projectorScreen)
     }
 
+    /// Short description of what a learned code actually captured (band +
+    /// size), read from the Broadlink blob's type byte. Surfaces "learned the
+    /// wrong band" mistakes that otherwise look like dead buttons.
+    func codeSummary(for button: RemoteButtonID) -> String? {
+        guard let base64 = learnedCodes[button.rawValue],
+              let data = Data(base64Encoded: base64),
+              let first = data.first else { return nil }
+        let kind: String
+        switch first {
+        case 0x26:        kind = "IR"
+        case 0xb2:        kind = "RF 433 MHz"
+        case 0xd7, 0xe7:  kind = "RF 315 MHz"
+        default:          kind = String(format: "type 0x%02X", first)
+        }
+        return "\(kind) · \(data.count) bytes"
+    }
+
     /// Whether the given logical button has a code/handler ready to fire.
     func canSend(_ button: RemoteButtonID) -> Bool {
         switch transport {

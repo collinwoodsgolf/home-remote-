@@ -132,8 +132,15 @@ struct DeviceSettingsView: View {
                     learningButton = button
                 } label: {
                     HStack {
-                        Text(button.label)
-                            .foregroundStyle(.primary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(button.label)
+                                .foregroundStyle(.primary)
+                            if let summary = device.codeSummary(for: button) {
+                                Text(summary)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                         Spacer()
                         if device.learnedCodes[button.rawValue] != nil {
                             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)

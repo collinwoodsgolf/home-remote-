@@ -95,10 +95,18 @@ actor BroadlinkHub {
         authenticated = true
     }
 
-    /// Transmit a previously learned IR code (raw Broadlink IR blob).
+    /// Transmit a previously learned IR/RF code (raw Broadlink blob).
     func sendIR(_ data: [UInt8]) async throws {
         try ensureAuthenticated()
-        _ = try await sendCommand(0x02, data: data)
+        var code = data
+        // RF motor receivers listen for sustained bursts — a real remote
+        // repeats the frame continuously while held. Blob byte 1 is the
+        // repeat count; raise it for RF codes so one tap replays enough
+        // frames to register (0xb2 = 433 MHz, 0xd7/0xe7 = 315 MHz variants).
+        if code.count > 2, code[0] == 0xb2 || code[0] == 0xd7 || code[0] == 0xe7 {
+            code[1] = max(code[1], 0x06)
+        }
+        _ = try await sendCommand(0x02, data: code)
     }
 
     /// Put the hub into IR-learning mode (point your physical remote at it).
