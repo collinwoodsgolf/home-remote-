@@ -12,7 +12,9 @@ final class DeviceStore: ObservableObject {
 
     private let devicesKey = "devices.v1"
     private let hubsKey = "hubs.v1"
-    private let scenesKey = "scenes.v1"
+    // v2: All Off slimmed to screen + projector (no AC/fan) per user request;
+    // bumping the key reseeds existing installs with the new defaults.
+    private let scenesKey = "scenes.v2"
 
     init() {
         load()
@@ -53,18 +55,14 @@ final class DeviceStore: ObservableObject {
             movieSteps.append(SceneStep(deviceID: fire, button: .home, delaySeconds: 3))
         }
 
+        // All Off intentionally leaves the AC and fan alone (climate keeps
+        // running); it just retracts the screen and powers down the projector.
         var offSteps: [SceneStep] = []
         if let screen = id(.projectorScreen) {
             offSteps.append(SceneStep(deviceID: screen, button: .screenUp))
         }
         if let projector = id(.yaberProjector) {
             offSteps.append(SceneStep(deviceID: projector, button: .power))
-        }
-        if let fan = id(.towerFan) {
-            offSteps.append(SceneStep(deviceID: fan, button: .power))
-        }
-        if let ac = id(.frigidaireAC) {
-            offSteps.append(SceneStep(deviceID: ac, button: .power))
         }
 
         scenes = [

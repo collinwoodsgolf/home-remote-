@@ -19,6 +19,9 @@ final class RemoteController: ObservableObject {
     /// The scene currently running, if any (drives its tile's spinner).
     @Published var runningSceneID: UUID?
 
+    /// Devices currently mid volume-slider adjustment (disables their slider).
+    @Published var volumeBusy: Set<UUID> = []
+
     private var fireTVControllers: [UUID: FireTVController] = [:]
     private var hubControllers: [String: BroadlinkHub] = [:]
     private var screenTasks: [UUID: Task<Void, Never>] = [:]
@@ -170,6 +173,65 @@ final class RemoteController: ObservableObject {
         }
     }
 
+    // MARK: - Volume slider (IR pseudo-absolute)
+
+    /// Move an IR device's volume to `percent`. IR has no feedback channel, so
+    /// the app tracks an assumed level and emits the number of Vol+/Vol−
+    /// pulses needed to reach the target. Dragging to 0 sends a full-range
+    /// down-burst, which forces the hardware to its floor and re-syncs the
+    /// assumed level with reality.
+    func setVolume(percent: Int, on device: Device) {
+        let target = max(0, min(100, percent))
+        guard !volumeBusy.contains(device.id) else { return }
+
+        let steps = max(1, device.volumeSteps)
+        let presses: Int
+        let button: RemoteButtonID
+        if target == 0 {
+            presses = steps                      // full floor: guaranteed sync
+            button = .volumeDown
+        } else if target == 100 {
+            presses = steps                      // full ceiling: the speaker's
+            button = .volumeUp                   // max beep confirms the sync
+        } else {
+            let delta = target - device.volumeLevel
+            if delta == 0 { return }
+            presses = max(1, Int((Double(abs(delta)) / 100.0 * Double(steps)).rounded()))
+            button = delta > 0 ? .volumeUp : .volumeDown
+        }
+
+        volumeBusy.insert(device.id)
+        Task {
+            var sent = 0
+            var failure: String?
+            for _ in 0..<presses {
+                do {
+                    try await sendInfrared(button, device: device)
+                    sent += 1
+                } catch {
+                    failure = error.localizedDescription
+                    break
+                }
+                // Receivers need breathing room between distinct presses.
+                try? await Task.sleep(nanoseconds: 180_000_000)
+            }
+
+            // Record where we believe the hardware landed. On a partial send,
+            // estimate from the pulses that actually went out.
+            var updated = device
+            if failure == nil {
+                updated.volumeLevel = target
+            } else {
+                let perStep = 100.0 / Double(steps)
+                let moved = Int((Double(sent) * perStep).rounded()) * (button == .volumeUp ? 1 : -1)
+                updated.volumeLevel = max(0, min(100, device.volumeLevel + moved))
+            }
+            store.update(updated)
+            self.lastError = failure
+            self.volumeBusy.remove(device.id)
+        }
+    }
+
     // MARK: - Motorized projector screen
 
     /// True while this screen is travelling under app control.
@@ -183,9 +245,20 @@ final class RemoteController: ObservableObject {
         moveScreen(device, direction: .screenDown)
     }
 
-    /// Raise the screen and auto-stop at the top endpoint.
+    /// Raise the screen fully. No timed stop here: screens end retraction on
+    /// their own top limit switch, and a timer calibrated for the (different)
+    /// lowering duration would park the screen halfway up — seen in the
+    /// "All Off" scene. The manual Stop key still works mid-raise.
     func raiseScreen(_ device: Device) {
-        moveScreen(device, direction: .screenUp)
+        screenTasks[device.id]?.cancel()
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.sendInfrared(.screenUp, device: device)
+            } catch {
+                self.lastError = error.localizedDescription
+            }
+        }
     }
 
     /// Stop a screen that's currently travelling (cancels the auto-stop timer;

@@ -35,13 +35,24 @@ struct RemoteScreen: View {
                     ScreenControl(device: device)
                 }
 
+                if device.kind == .tclSpeaker {
+                    VolumeSliderControl(device: device)
+                }
+
                 ForEach(layout.rows) { row in
-                    if row.isDPad {
-                        DPadRow(buttons: row.buttons, device: device)
-                    } else {
-                        HStack(spacing: 12) {
-                            ForEach(row.buttons, id: \.self) { button in
-                                buttonView(button, device: device)
+                    // The speaker's Vol± keys are replaced by the slider above;
+                    // they stay in the layout so Settings can still learn them.
+                    let buttons = row.buttons.filter {
+                        !(device.kind == .tclSpeaker && ($0 == .volumeUp || $0 == .volumeDown))
+                    }
+                    if !buttons.isEmpty {
+                        if row.isDPad {
+                            DPadRow(buttons: buttons, device: device)
+                        } else {
+                            HStack(spacing: 12) {
+                                ForEach(buttons, id: \.self) { button in
+                                    buttonView(button, device: device)
+                                }
                             }
                         }
                     }
@@ -154,6 +165,57 @@ private struct AppShortcutsGrid: View {
             }
         }
         .padding(.top, 8)
+    }
+}
+
+/// Percentage volume for IR speakers. IR is one-way, so this drives an assumed
+/// level: dragging emits the matching number of Vol+/Vol− pulses, and the two
+/// rails re-sync it — 0% floors the hardware, 100% pegs it (the TCL beeps at
+/// max, confirming the sync).
+private struct VolumeSliderControl: View {
+    let device: Device
+    @EnvironmentObject private var controller: RemoteController
+    @State private var level: Double
+
+    init(device: Device) {
+        self.device = device
+        _level = State(initialValue: Double(device.volumeLevel))
+    }
+
+    private var canAdjust: Bool { device.canSend(.volumeUp) && device.canSend(.volumeDown) }
+    private var busy: Bool { controller.volumeBusy.contains(device.id) }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Label("Volume", systemImage: "speaker.wave.2.fill")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                if busy { ProgressView().controlSize(.small) }
+                Text("\(Int(level))%")
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            Slider(value: $level, in: 0...100, step: 1) { editing in
+                if !editing {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    controller.setVolume(percent: Int(level), on: device)
+                }
+            }
+            .disabled(!canAdjust || busy)
+            Text(canAdjust
+                 ? "Estimated level — drag to 0% or 100% to re-sync (max beeps)."
+                 : "Learn Vol + and Vol – first (gear icon).")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding()
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .onChange(of: device.volumeLevel) { _, newLevel in
+            if !busy { level = Double(newLevel) }
+        }
     }
 }
 

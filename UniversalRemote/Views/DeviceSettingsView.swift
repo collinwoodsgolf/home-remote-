@@ -107,6 +107,25 @@ struct DeviceSettingsView: View {
                  : "Turn on if this device's remote is radio-frequency (RF) rather than infrared — common for motorized projector screens and some ceiling fans.")
         }
 
+        if device.kind == .tclSpeaker {
+            Section {
+                Stepper(value: Binding(
+                    get: { device.volumeSteps },
+                    set: { var d = device; d.volumeSteps = $0; store.update(d) }
+                ), in: 10...60) {
+                    HStack {
+                        Text("Presses, silent → max")
+                        Spacer()
+                        Text("\(device.volumeSteps)").foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text("Volume Slider")
+            } footer: {
+                Text("How many Vol + presses take the speaker from silent to its max beep. To calibrate: drag the slider to 0%, then count the presses on the real remote until it beeps at max, and set that number here.")
+            }
+        }
+
         if device.kind == .projectorScreen {
             Section {
                 Stepper(value: Binding(

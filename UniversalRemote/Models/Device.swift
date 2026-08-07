@@ -88,6 +88,12 @@ struct Device: Codable, Identifiable, Hashable {
     /// identical for IR and RF, so only learning differs.
     var usesRFLearning: Bool = false
 
+    /// Volume-slider state. IR is one-way, so the app tracks an assumed level
+    /// (0–100%) and converts slider moves into Vol+/Vol− pulses.
+    /// `volumeSteps` is how many IR presses span silent → max on this device.
+    var volumeLevel: Int = 0
+    var volumeSteps: Int = 30
+
     init(kind: DeviceKind, name: String? = nil) {
         self.kind = kind
         self.name = name ?? kind.displayName
@@ -102,6 +108,7 @@ struct Device: Codable, Identifiable, Hashable {
     enum CodingKeys: String, CodingKey {
         case id, kind, name, transport, hubID, networkHost, networkPort
         case learnedCodes, screenTravelSeconds, usesRFLearning
+        case volumeLevel, volumeSteps
     }
 
     init(from decoder: Decoder) throws {
@@ -116,6 +123,8 @@ struct Device: Codable, Identifiable, Hashable {
         learnedCodes = try c.decodeIfPresent([String: String].self, forKey: .learnedCodes) ?? [:]
         screenTravelSeconds = try c.decodeIfPresent(Double.self, forKey: .screenTravelSeconds) ?? 25
         usesRFLearning = try c.decodeIfPresent(Bool.self, forKey: .usesRFLearning) ?? (kind == .projectorScreen)
+        volumeLevel = try c.decodeIfPresent(Int.self, forKey: .volumeLevel) ?? 0
+        volumeSteps = try c.decodeIfPresent(Int.self, forKey: .volumeSteps) ?? 30
     }
 
     /// Short description of what a learned code actually captured (band +
