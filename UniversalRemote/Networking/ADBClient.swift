@@ -63,10 +63,21 @@ actor ADBClient {
         }
     }
 
-    /// Run a shell command, returning its stdout text. Opens a fresh stream,
-    /// reads until the device closes it.
+    /// Run a shell command, returning its stdout text. If the cached socket
+    /// has died (stick went to sleep, network blip, lease renewal), tears the
+    /// session down and retries once on a fresh connection so the first press
+    /// after a sleep self-heals instead of failing until an app restart.
     @discardableResult
     func shell(_ command: String) async throws -> String {
+        do {
+            return try await runShell(command)
+        } catch {
+            disconnect()
+            return try await runShell(command)
+        }
+    }
+
+    private func runShell(_ command: String) async throws -> String {
         if !connected { try await connect() }
         localID &+= 1
         let stream = localID
