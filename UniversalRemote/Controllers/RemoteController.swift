@@ -64,7 +64,20 @@ final class RemoteController: ObservableObject {
             fireTVControllers[device.id] = c
             return c
         }()
-        try await controller.send(button)
+        do {
+            try await controller.send(button)
+        } catch {
+            // The stick may have been moved to a new address. Sweep the subnet
+            // for an open ADB port, rehome the device, and retry once.
+            let candidates = await ADBDiscovery.scanSubnet(port: UInt16(device.networkPort))
+            guard let newHost = candidates.first(where: { $0 != host }) else { throw error }
+            var updated = device
+            updated.networkHost = newHost
+            store.update(updated)
+            let fresh = FireTVController(host: newHost, port: updated.networkPort)
+            fireTVControllers[device.id] = fresh
+            try await fresh.send(button)
+        }
     }
 
     private func sendInfrared(_ button: RemoteButtonID, device: Device) async throws {
