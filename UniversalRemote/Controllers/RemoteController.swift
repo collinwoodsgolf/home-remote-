@@ -48,14 +48,14 @@ final class RemoteController: ObservableObject {
     /// Perform a button on the right transport, awaiting completion. Shared by
     /// single presses and scene steps (which need ordered, awaited execution).
     private func perform(_ button: RemoteButtonID, on device: Device) async throws {
-        // The Yaber shows an "OK to shut down?" dialog on power-off; a second
-        // power press confirms it. When the projector is believed to be on,
-        // answer the dialog automatically so scenes and presses fully shut it
-        // down instead of leaving the prompt on screen.
+        // The Yaber shows an "OK to shut down?" dialog on power-off; pressing
+        // OK confirms it (a second Power press is read as a fresh power-on and
+        // turns it back on). When the projector is believed on, send Power then
+        // auto-answer the dialog with Select so it fully shuts down.
         if device.kind == .yaberProjector, button == .power, device.assumedOn == true {
             try await sendInfrared(.power, device: device)
             try? await Task.sleep(nanoseconds: 1_200_000_000)
-            try await sendInfrared(.power, device: device)
+            try await sendInfrared(.select, device: device)
             setAssumedPower(false, device: device)
             return
         }
