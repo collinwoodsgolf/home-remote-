@@ -139,6 +139,45 @@ final class DeviceStore: ObservableObject {
         save()
     }
 
+    // MARK: - Backup / transfer
+
+    /// Everything needed to clone this install onto another phone: devices
+    /// (with learned codes and calibrations), paired hubs, and scenes.
+    struct AppBackup: Codable {
+        var version: Int = 1
+        var devices: [Device]
+        var hubs: [BroadlinkHubInfo]
+        var scenes: [RemoteScene]
+    }
+
+    /// Writes the full setup to a shareable JSON file (AirDrop/Files/etc.).
+    func exportFileURL() -> URL? {
+        let backup = AppBackup(devices: devices, hubs: hubs, scenes: scenes)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(backup) else { return nil }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("UniversalRemote-Setup.json")
+        do {
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            return nil
+        }
+    }
+
+    /// Replaces the local setup with an exported file's contents.
+    func importBackup(from url: URL) throws {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let data = try Data(contentsOf: url)
+        let backup = try JSONDecoder().decode(AppBackup.self, from: data)
+        devices = backup.devices
+        hubs = backup.hubs
+        scenes = backup.scenes
+        save()
+    }
+
     // MARK: - Persistence
 
     private func save() {

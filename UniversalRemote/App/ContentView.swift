@@ -1,11 +1,15 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// Home screen: one-tap scenes, a grid of the user's devices, and an entry
 /// point to hub setup.
 struct ContentView: View {
     @EnvironmentObject private var store: DeviceStore
     @EnvironmentObject private var controller: RemoteController
+
+    @State private var showingImporter = false
+    @State private var importMessage: String?
 
     private let columns = [GridItem(.adaptive(minimum: 150), spacing: 16)]
 
@@ -32,6 +36,22 @@ struct ContentView: View {
                 RemoteScreen(deviceID: device.id)
             }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        if let url = store.exportFileURL() {
+                            ShareLink(item: url) {
+                                Label("Export Setup…", systemImage: "square.and.arrow.up")
+                            }
+                        }
+                        Button {
+                            showingImporter = true
+                        } label: {
+                            Label("Import Setup…", systemImage: "square.and.arrow.down")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
                         HubSetupView()
@@ -39,6 +59,28 @@ struct ContentView: View {
                         Image(systemName: "wifi.router")
                     }
                 }
+            }
+            .fileImporter(isPresented: $showingImporter,
+                          allowedContentTypes: [.json]) { result in
+                switch result {
+                case .success(let url):
+                    do {
+                        try store.importBackup(from: url)
+                        importMessage = "Setup imported — all devices, learned buttons, hub, and scenes are ready."
+                    } catch {
+                        importMessage = "Import failed: \(error.localizedDescription)"
+                    }
+                case .failure(let error):
+                    importMessage = "Import failed: \(error.localizedDescription)"
+                }
+            }
+            .alert("Import Setup", isPresented: Binding(
+                get: { importMessage != nil },
+                set: { if !$0 { importMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(importMessage ?? "")
             }
         }
     }
