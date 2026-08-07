@@ -94,6 +94,11 @@ struct Device: Codable, Identifiable, Hashable {
     var volumeLevel: Int = 0
     var volumeSteps: Int = 30
 
+    /// Best-effort power state for toggle-only devices, tracked from presses
+    /// made through the app (IR can't be queried). nil = never observed.
+    /// Lets scenes skip a toggle that would otherwise turn a running device off.
+    var assumedOn: Bool? = nil
+
     init(kind: DeviceKind, name: String? = nil) {
         self.kind = kind
         self.name = name ?? kind.displayName
@@ -108,7 +113,7 @@ struct Device: Codable, Identifiable, Hashable {
     enum CodingKeys: String, CodingKey {
         case id, kind, name, transport, hubID, networkHost, networkPort
         case learnedCodes, screenTravelSeconds, usesRFLearning
-        case volumeLevel, volumeSteps
+        case volumeLevel, volumeSteps, assumedOn
     }
 
     init(from decoder: Decoder) throws {
@@ -125,6 +130,7 @@ struct Device: Codable, Identifiable, Hashable {
         usesRFLearning = try c.decodeIfPresent(Bool.self, forKey: .usesRFLearning) ?? (kind == .projectorScreen)
         volumeLevel = try c.decodeIfPresent(Int.self, forKey: .volumeLevel) ?? 0
         volumeSteps = try c.decodeIfPresent(Int.self, forKey: .volumeSteps) ?? 30
+        assumedOn = try c.decodeIfPresent(Bool.self, forKey: .assumedOn)
     }
 
     /// Short description of what a learned code actually captured (band +

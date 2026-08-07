@@ -54,6 +54,21 @@ final class RemoteController: ObservableObject {
         case .infrared:
             try await sendInfrared(button, device: device)
         }
+        recordAssumedPower(button, device: device)
+    }
+
+    /// Track the best-effort power state after a successful send, so scenes
+    /// can skip toggles that would turn a running device off.
+    private func recordAssumedPower(_ button: RemoteButtonID, device: Device) {
+        guard let current = store.devices.first(where: { $0.id == device.id }) else { return }
+        var updated = current
+        switch button {
+        case .powerOn:  updated.assumedOn = true
+        case .powerOff: updated.assumedOn = false
+        case .power:    updated.assumedOn = !(current.assumedOn ?? false)
+        default:        return
+        }
+        store.update(updated)
     }
 
     // MARK: - Transports
@@ -159,6 +174,8 @@ final class RemoteController: ObservableObject {
                     try? await Task.sleep(nanoseconds: UInt64(step.delaySeconds * 1_000_000_000))
                 }
                 guard let device = store.devices.first(where: { $0.id == step.deviceID }) else { continue }
+                if step.skipIfOn && device.assumedOn == true { continue }
+                if step.skipIfOff && device.assumedOn == false { continue }
 
                 if device.kind == .projectorScreen && step.button == .screenDown {
                     lowerScreen(device)

@@ -12,9 +12,10 @@ final class DeviceStore: ObservableObject {
 
     private let devicesKey = "devices.v1"
     private let hubsKey = "hubs.v1"
-    // v2: All Off slimmed to screen + projector (no AC/fan) per user request;
-    // bumping the key reseeds existing installs with the new defaults.
-    private let scenesKey = "scenes.v2"
+    // v3: Movie Night turns on the whole room (speaker/AC/fan too, with
+    // skip-if-on guards); All Off stays screen + projector only. Bumping the
+    // key reseeds existing installs with the new defaults.
+    private let scenesKey = "scenes.v3"
 
     init() {
         load()
@@ -44,9 +45,21 @@ final class DeviceStore: ObservableObject {
     private func seedDefaultScenes() {
         func id(_ kind: DeviceKind) -> UUID? { devices.first(where: { $0.kind == kind })?.id }
 
+        // Movie Night brings up the whole room. Toggle-power devices carry
+        // skipIfOn so a re-run doesn't switch something off; the AC's On is a
+        // discrete state frame and is safe to send unconditionally.
         var movieSteps: [SceneStep] = []
         if let projector = id(.yaberProjector) {
-            movieSteps.append(SceneStep(deviceID: projector, button: .power))
+            movieSteps.append(SceneStep(deviceID: projector, button: .power, skipIfOn: true))
+        }
+        if let speaker = id(.tclSpeaker) {
+            movieSteps.append(SceneStep(deviceID: speaker, button: .power, delaySeconds: 1, skipIfOn: true))
+        }
+        if let ac = id(.frigidaireAC) {
+            movieSteps.append(SceneStep(deviceID: ac, button: .powerOn, delaySeconds: 1))
+        }
+        if let fan = id(.towerFan) {
+            movieSteps.append(SceneStep(deviceID: fan, button: .power, delaySeconds: 1, skipIfOn: true))
         }
         if let screen = id(.projectorScreen) {
             movieSteps.append(SceneStep(deviceID: screen, button: .screenDown, delaySeconds: 2))
@@ -62,7 +75,7 @@ final class DeviceStore: ObservableObject {
             offSteps.append(SceneStep(deviceID: screen, button: .screenUp))
         }
         if let projector = id(.yaberProjector) {
-            offSteps.append(SceneStep(deviceID: projector, button: .power))
+            offSteps.append(SceneStep(deviceID: projector, button: .power, skipIfOff: true))
         }
 
         scenes = [
