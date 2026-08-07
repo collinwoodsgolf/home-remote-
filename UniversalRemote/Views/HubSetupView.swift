@@ -103,8 +103,14 @@ struct HubSetupView: View {
     private func scan() {
         isScanning = true
         Task {
-            let hubs = await BroadlinkDiscovery.scan()
+            // Unicast subnet sweep: works without the multicast entitlement,
+            // and finds hubs even after the router moves their address.
+            let hubs = await BroadlinkDiscovery.scanSubnet()
             await MainActor.run {
+                // Refresh the stored address of any already-paired hub that moved.
+                for hub in hubs where store.hubs.contains(where: { $0.id == hub.id }) {
+                    store.addHub(hub)
+                }
                 found = hubs
                 isScanning = false
             }

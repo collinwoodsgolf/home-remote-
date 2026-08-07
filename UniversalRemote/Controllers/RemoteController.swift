@@ -72,8 +72,31 @@ final class RemoteController: ObservableObject {
             throw RemoteError.notLearned
         }
         let hub = try hubController(for: device)
-        try await hub.authenticateIfNeeded()
-        try await hub.sendIR(code)
+        do {
+            try await hub.authenticateIfNeeded()
+            try await hub.sendIR(code)
+        } catch {
+            // A hub that answered yesterday but is unreachable now has usually
+            // been moved to a new address by the router. Sweep the subnet for
+            // the same hub (matched by MAC), rehome it, and retry once.
+            if case RemoteError.deviceError = error { throw error }
+            guard let fresh = try await relocatedHub(for: device) else { throw error }
+            try await fresh.authenticateIfNeeded()
+            try await fresh.sendIR(code)
+        }
+    }
+
+    /// Sweeps the subnet for the device's paired hub after its stored address
+    /// stops answering. Returns a fresh controller at the new address, or nil
+    /// if the hub genuinely isn't on the network.
+    private func relocatedHub(for device: Device) async throws -> BroadlinkHub? {
+        guard let info = store.hub(for: device) else { throw RemoteError.noHubPaired }
+        let candidates = await BroadlinkDiscovery.scanSubnet()
+        guard let match = candidates.first(where: { $0.id == info.id }),
+              match.host != info.host else { return nil }
+        store.addHub(match)                    // upserts by MAC, new address
+        hubControllers[match.id] = BroadlinkHub(info: match)
+        return hubControllers[match.id]
     }
 
     /// Returns the cached hub controller for the device, creating one on first
@@ -87,11 +110,19 @@ final class RemoteController: ObservableObject {
     }
 
     /// Returns a freshly authenticated hub (used by the learning flow, which
-    /// wants a guaranteed-live session before entering learn mode).
+    /// wants a guaranteed-live session before entering learn mode). Rehomes
+    /// the hub automatically if its address has changed.
     func authenticatedHub(for device: Device) async throws -> BroadlinkHub {
         let hub = try hubController(for: device)
-        try await hub.authenticate()
-        return hub
+        do {
+            try await hub.authenticate()
+            return hub
+        } catch {
+            if case RemoteError.deviceError = error { throw error }
+            guard let fresh = try await relocatedHub(for: device) else { throw error }
+            try await fresh.authenticate()
+            return fresh
+        }
     }
 
     func invalidate(_ device: Device) {

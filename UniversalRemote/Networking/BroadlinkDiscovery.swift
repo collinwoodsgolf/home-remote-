@@ -33,14 +33,14 @@ enum BroadlinkDiscovery {
     /// Unicast probe of a known IP. Sends the same hello packet directly to the
     /// host (no broadcast, so it works without the multicast entitlement) and
     /// fills in the host from the address we used.
-    static func probe(host: String) async -> BroadlinkHubInfo? {
+    static func probe(host: String, timeout: TimeInterval = 3) async -> BroadlinkHubInfo? {
         let localIP = LocalNetwork.primaryIPv4Address() ?? "0.0.0.0"
         let packet = makeDiscoveryPacket(localIP: localIP, port: 0)
         let channel = UDPChannel(host: host, port: 80)
         do {
-            try await channel.start()
+            try await channel.start(timeout: timeout)
             try await channel.send(Data(packet))
-            let data = try await channel.receive(timeout: 3)
+            let data = try await channel.receive(timeout: timeout)
             channel.cancel()
             guard var hub = parseResponse([UInt8](data)) else { return nil }
             hub.host = host   // trust the address we successfully reached
@@ -49,6 +49,29 @@ enum BroadlinkDiscovery {
             channel.cancel()
             return nil
         }
+    }
+
+    /// Sweep the local /24 with unicast probes — no multicast entitlement
+    /// needed. Finds hubs even after the router hands them a new address.
+    static func scanSubnet(concurrency: Int = 32, timeout: TimeInterval = 0.8) async -> [BroadlinkHubInfo] {
+        guard let localIP = LocalNetwork.primaryIPv4Address() else { return [] }
+        let parts = localIP.split(separator: ".")
+        guard parts.count == 4 else { return [] }
+        let prefix = parts[0...2].joined(separator: ".")
+
+        var found: [String: BroadlinkHubInfo] = [:]
+        var next = 1
+        await withTaskGroup(of: BroadlinkHubInfo?.self) { group in
+            func enqueue(_ i: Int) {
+                group.addTask { await probe(host: "\(prefix).\(i)", timeout: timeout) }
+            }
+            while next <= 254 && next <= concurrency { enqueue(next); next += 1 }
+            for await result in group {
+                if let hub = result { found[hub.id] = hub }
+                if next <= 254 { enqueue(next); next += 1 }
+            }
+        }
+        return Array(found.values)
     }
 
     static func makeDiscoveryPacket(localIP: String, port: UInt16) -> [UInt8] {
