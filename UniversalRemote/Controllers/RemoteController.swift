@@ -48,6 +48,18 @@ final class RemoteController: ObservableObject {
     /// Perform a button on the right transport, awaiting completion. Shared by
     /// single presses and scene steps (which need ordered, awaited execution).
     private func perform(_ button: RemoteButtonID, on device: Device) async throws {
+        // The Yaber shows an "OK to shut down?" dialog on power-off; a second
+        // power press confirms it. When the projector is believed to be on,
+        // answer the dialog automatically so scenes and presses fully shut it
+        // down instead of leaving the prompt on screen.
+        if device.kind == .yaberProjector, button == .power, device.assumedOn == true {
+            try await sendInfrared(.power, device: device)
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            try await sendInfrared(.power, device: device)
+            setAssumedPower(false, device: device)
+            return
+        }
+
         switch device.transport {
         case .network:
             try await sendNetwork(button, device: device)
@@ -55,6 +67,12 @@ final class RemoteController: ObservableObject {
             try await sendInfrared(button, device: device)
         }
         recordAssumedPower(button, device: device)
+    }
+
+    private func setAssumedPower(_ on: Bool, device: Device) {
+        guard var updated = store.devices.first(where: { $0.id == device.id }) else { return }
+        updated.assumedOn = on
+        store.update(updated)
     }
 
     /// Track the best-effort power state after a successful send, so scenes

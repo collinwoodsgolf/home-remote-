@@ -41,6 +41,15 @@ actor FireTVController {
     }
 
     func send(_ button: RemoteButtonID) async throws {
+        // Power is stateful: KEYCODE_POWER pops Fire OS's sleep menu, but the
+        // stick can be queried, so ask whether it's awake and send the direct
+        // SLEEP (223) or WAKEUP (224) keycode instead — no on-screen prompt.
+        if button == .power {
+            let wakefulness = try await adb.shell("dumpsys power | grep -i wakefulness=")
+            let isAwake = wakefulness.lowercased().contains("=awake")
+            try await adb.shell("input keyevent \(isAwake ? 223 : 224)")
+            return
+        }
         guard let key = Self.keyEvent(for: button) else {
             throw RemoteError.invalidConfiguration("No Fire TV key mapping for \(button.label).")
         }
